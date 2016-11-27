@@ -1,22 +1,32 @@
 #!/usr/bin/python
 
+#
+# IMPORT SECTION
+#
 import pygame, math, sys, subprocess
 from pygame.locals import *
 from pygame import Surface, draw, transform
 from subprocess import check_output
+import numpy
 
 pygame.init()
-myfont = pygame.font.Font('Roboto-Regular.ttf', 42)
-
-listado = subprocess.check_output('xrandr').split()
-resolucion = [int(s) for s in listado[listado.index('primary') + 1].replace('+','x').split('x') if s.isdigit()]
-screen = pygame.display.set_mode((resolucion[0],resolucion[1]),pygame.NOFRAME)
+myfont = pygame.font.Font('Roboto-Regular.ttf', 40)
 
 #
+# GET PRIMARY DISPLAY RESOLUTION
+# resolution [ x, y, x/2, y/2 ]
 #
-#########################################################################
+xrandr_out = subprocess.check_output('xrandr').split()
+resolution = [int(s) for s in xrandr_out[xrandr_out.index('primary') + 1].replace('+','x').split('x') if s.isdigit()]
+resolution[2] = resolution[0]/2
+resolution[3] = resolution[1]/2
 
+screen = pygame.display.set_mode((resolution[0],resolution[1]),pygame.NOFRAME)
+#screen = pygame.display.set_mode((resolution[0],resolution[1]))
 
+#
+# CLASSES
+#
 def grayscale_image(surf): 
     width, height = surf.get_size() 
     for x in range(width): 
@@ -41,7 +51,6 @@ class Emulator:
 	self.visible = 1
 	self.command = str(command)
 	self.games = 0
-
 
     def set_name(self, name):
 	self.name = str(name)
@@ -86,26 +95,17 @@ class Emulator:
         return(self.visible)
 
     def draw(self, screen, scale = 0):
-        if ((self.x<=resolucion[0]) & (self.x>=-self.get_width(scale))):
+        if ((self.x<=resolution[0]) & (self.x>=-self.get_width(scale))):
 	    if (scale == 0):
 		screen.blit(self.image, (self.x, self.y))
 	    elif (scale == 1):
 		screen.blit(self.image_smoothscale, (self.x, self.y))
-
-# self.oranges = []
-# for x in range(10):
-#     self.oranges.append(SpriteOrange('orange.png'))
-# for o in self.oranges:
-#     o.update()
-# for o in self.oranges:
-#     o.draw(self.screen)
 
 
 def AAfilledRoundedRect(surface,rect,color,radius=0.4):
 
     """
     AAfilledRoundedRect(surface,rect,color,radius=0.4)
-
     surface : destination
     rect    : rectangle
     color   : rgb or rgba
@@ -139,27 +139,32 @@ def AAfilledRoundedRect(surface,rect,color,radius=0.4):
     rectangle.fill((255,255,255,alpha),special_flags=BLEND_RGBA_MIN)
 
     return surface.blit(rectangle,pos)
-
-
+#
+# END CLASSES
+#
 
 #
+# DRAW BACKGROUND
 #
-#########################################################################
-
 background = pygame.image.load('wallpaper-3.jpg')
-background = pygame.transform.scale(background, (resolucion[0],resolucion[1]))
-pygame.draw.rect(background,(255,255,255),(0,(resolucion[1]/2)-130,resolucion[0],260))
-pygame.draw.rect(background,(63,63,63),(0,(resolucion[1]/2)-135,resolucion[0],5))
-pygame.draw.rect(background,(63,63,63),(0,(resolucion[1]/2)+130,resolucion[0],5))
+background = pygame.transform.scale(background, (resolution[0],resolution[1]))
+pygame.draw.rect(background,(255,255,255),(0,(resolution[3])-130,resolution[0],260))
+pygame.draw.rect(background,(63,63,63),(0,(resolution[3])-135,resolution[0],5))
+pygame.draw.rect(background,(63,63,63),(0,(resolution[3])+130,resolution[0],5))
+screen.blit(background, (0,0))
 
-amiga = Emulator('Amiga','amiga.png','/opt/bin/amiga-emulator')
-atari2600 = Emulator('Atari 2600','atari2600.png','/opt/bin/atari2600-emulator')
-gb = Emulator('GameBoy','gb.png','/opt/bin/gameboy-emulator')
+help_middle = pygame.Surface((resolution[0],55), pygame.SRCALPHA)
+help_middle.fill((255,255,255,128))
+
+emulator_list = []
+emulator_list.append (Emulator('Amiga','amiga.png','/opt/bin/amiga-emulator'))
+emulator_list.append (Emulator('GameBoy','gb.png','/opt/bin/gameboy-emulator'))
+emulator_list.append (Emulator('Atari 2600','atari2600.png','/opt/bin/atari2600-emulator'))
+emulator_selection = numpy.arange(0,len(emulator_list))
 
 clock = pygame.time.Clock()
-direccion = 0
 BLACK = (0,0,0)
-x = 0
+x = down = roll = 0
 distancia = 2
 aceleracion = 64
 factor = 1.8
@@ -169,62 +174,51 @@ while 1:
     clock.tick(30)
     for event in pygame.event.get():
         if not hasattr(event, 'key'): continue
-        down = event.type == KEYDOWN     # key down or up?
-        if event.key == K_RIGHT: direccion = 1
-        elif event.key == K_LEFT: direccion = 2
-        elif event.key == K_ESCAPE: sys.exit(0)     # quit the game
-    screen.fill(BLACK)
+        if (event.key==K_RIGHT and event.type==KEYDOWN): roll = 2
+        elif (event.key==K_LEFT and event.type==KEYDOWN): roll = 1
+        elif (event.key==K_ESCAPE and event.type==KEYDOWN): sys.exit(0)
 
-    if (direccion == 1) : # DER
-	if ((x > 5*(resolucion[0]/6)) & (aceleracion>16/factor)): aceleracion /= factor
-	x += distancia*aceleracion
-    elif (direccion == 2) : # IZQ
-	if ((x <= resolucion[0]/6) & (aceleracion>16/factor)) : aceleracion /= factor
-	x -= distancia*aceleracion
+    if hasattr(event, 'key'):
+	pygame.draw.rect(screen,(255,255,255),(0,(resolution[3])-130,resolution[0],260))
+	screen.blit(background, (0,0)) # remove when label test ends
 
-    if ((x <= 0) | (x >= resolucion[0])) :
-	direccion = 0
-	distancia = 2
-	aceleracion = 64
+    if (roll == 1): # RIGHT
+	emulator_selection = numpy.roll(emulator_selection,1)
+	roll = 0
+    elif (roll == 2): # LEFT
+	emulator_selection = numpy.roll(emulator_selection,-1)
+	ntmp = roll
+	roll = 0
 
-    screen.blit(background, (0,0))
+    screen.blit(help_middle, (0,(resolution[3])+135))
 
-    label1 = myfont.render("X: "+str(amiga.get_position()), 1, (255,63,63))
+    label4 = myfont.render(str(emulator_selection[1])+" GAMES AVAILABLE", 1, (63,63,63))
+    label4pos = label4.get_rect()
+    label4pos.centerx = background.get_rect().centerx
+    label4pos.centery = (resolution[3])+163
+    screen.blit(label4, label4pos)
+
+#    help_down = pygame.Surface((resolution[0],100), pygame.SRCALPHA)
+#    help_down.fill((255,255,255,128))                         # notice the alpha value in the color
+#    screen.blit(help_down, (0,resolution[1]-100))
+
+    # LEFT
+    emulator_list[emulator_selection[0]].set_position((x,(resolution[3])-(emulator_list[emulator_selection[0]].get_height(1)/2)))
+    emulator_list[emulator_selection[0]].draw(screen,1)
+    # CENTER (SELECTED)
+    emulator_list[emulator_selection[1]].set_position((x+(resolution[2])-(emulator_list[emulator_selection[1]].get_width(0)/2),(resolution[3])-(emulator_list[emulator_selection[1]].get_height()/2)))
+    emulator_list[emulator_selection[1]].draw(screen,0)
+    # RIGHT
+    emulator_list[emulator_selection[2]].set_position((x+resolution[0]-emulator_list[emulator_selection[2]].get_width(1),(resolution[3])-(emulator_list[emulator_selection[2]].get_height(1)/2)))
+    emulator_list[emulator_selection[2]].draw(screen,1)
+
+# TEST
+    label1 = myfont.render("X: "+str(emulator_list[0].get_position()), 1, (255,63,63))
     label2 = myfont.render("A: "+str(aceleracion), 1, (255,63,63))
-    label3 = myfont.render("Res: "+str((resolucion[0],resolucion[1])), 1, (255,63,63))
+    label3 = myfont.render("Res: "+str((resolution[0],resolution[1])), 1, (255,63,63))
     screen.blit(label3, (100, 50))
     screen.blit(label1, (100, 100))
     screen.blit(label2, (100, 150))
-
-#    AAfilledRoundedRect(screen,((resolucion[0]/2)-150,800,300,60),(63,63,63),1)
-
-    help_middle = pygame.Surface((resolucion[0],55), pygame.SRCALPHA)
-    help_middle.fill((255,255,255,128))
-    screen.blit(help_middle, (0,(resolucion[1]/2)+135))
-
-    label4 = myfont.render("34589 GAMES AVAILABLE", 1, (63,63,63))
-    label4pos = label4.get_rect()
-    label4pos.centerx = background.get_rect().centerx
-    label4pos.centery = (resolucion[1]/2)+163
-    screen.blit(label4, label4pos)
-
-#    help_down = pygame.Surface((resolucion[0],100), pygame.SRCALPHA)
-#    help_down.fill((255,255,255,128))                         # notice the alpha value in the color
-#    screen.blit(help_down, (0,resolucion[1]-100))
-
-    # IZQ
-    amiga.set_position((x,(resolucion[1]/2)-(amiga.get_height(1)/2)))
-    amiga.draw(screen,1)
-    # CENTRO
-    gb.set_position((x+(resolucion[0]/2)-(gb.get_width(0)/2),(resolucion[1]/2)-(gb.get_height()/2)))
-    gb.draw(screen,0)
-    # DER
-    atari2600.set_position((x+resolucion[0]-atari2600.get_width(1),(resolucion[1]/2)-(atari2600.get_height(1)/2)))
-    atari2600.draw(screen,1)
-    # NUEVO
+#    AAfilledRoundedRect(screen,((resolution[2])-150,800,300,60),(63,63,63),1)
 
     pygame.display.flip()
-
-
-
-
