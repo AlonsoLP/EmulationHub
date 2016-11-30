@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#! /usr/bin/env python
 
 #
 # IMPORT SECTION
@@ -7,17 +7,26 @@ import pygame, math, sys, subprocess
 from pygame.locals import *
 from pygame import Surface, draw, transform
 from subprocess import check_output
-import numpy
+import evdev
+
 
 pygame.init()
-myfont = pygame.font.Font('Roboto-Regular.ttf', 40)
+myfont = pygame.font.Font('fonts/Roboto-Regular.ttf', 40)
+
+#
+# INIT JOYSTICKS/GAMEPADS
+#
+pygame.joystick.init()
+joysticks = [pygame.joystick.Joystick(x) for x in range(pygame.joystick.get_count())]
+if len(joysticks)>0: joysticks[0].init()
 
 #
 # GET PRIMARY DISPLAY RESOLUTION
 # resolution [ x, y, x/2, y/2 ]
 #
-xrandr_out = subprocess.check_output('xrandr').split()
-resolution = [int(s) for s in xrandr_out[xrandr_out.index('primary') + 1].replace('+','x').split('x') if s.isdigit()]
+#xrandr_out = subprocess.check_output('xrandr').split()
+#resolution = [int(s) for s in xrandr_out[xrandr_out.index('primary') + 1].replace('+','x').split('x') if s.isdigit()]
+resolution = [1680,1024,0,0]
 resolution[2] = resolution[0]/2
 resolution[3] = resolution[1]/2
 
@@ -40,17 +49,24 @@ def grayscale_image(surf):
 
 class Emulator:
 
-    def __init__(self, name, image, command = ''):
+    def __init__(self, short, name, command = '', extensions = []):
+	self.short = str(short)
 	self.name = str(name)
 	self.x = self.y = 0
-        self.image = pygame.image.load(str(image))
+        self.image = pygame.image.load('images/'+self.short+'.png')
 	self.width = self.image.get_width()
 	self.height = self.image.get_height()
 	self.scale = 0.6
 	self.image_smoothscale = pygame.transform.scale(grayscale_image(self.image), (int(self.width*self.scale),int(self.height*self.scale)))
-	self.visible = 1
+	self.active = 1
 	self.command = str(command)
 	self.games = 0
+	self.extensions = extensions
+
+    def set_short(self, short):
+	self.short = str(short)
+    def get_short(self):
+	return(self.short)
 
     def set_name(self, name):
 	self.name = str(name)
@@ -89,10 +105,10 @@ class Emulator:
     def get_scale(self):
         return(self.scale)
 
-    def set_visible(self, visible):
-        self.visible = int(visible)
-    def get_visible(self):
-        return(self.visible)
+    def set_active(self, active):
+        self.active = int(active)
+    def get_active(self):
+        return(self.active)
 
     def draw(self, screen, scale = 0):
         if ((self.x<=resolution[0]) & (self.x>=-self.get_width(scale))):
@@ -146,7 +162,7 @@ def AAfilledRoundedRect(surface,rect,color,radius=0.4):
 #
 # DRAW BACKGROUND
 #
-background = pygame.image.load('wallpaper-3.jpg')
+background = pygame.image.load('images/wallpaper-3.jpg')
 background = pygame.transform.scale(background, (resolution[0],resolution[1]))
 pygame.draw.rect(background,(255,255,255),(0,(resolution[3])-130,resolution[0],260))
 pygame.draw.rect(background,(63,63,63),(0,(resolution[3])-135,resolution[0],5))
@@ -156,18 +172,43 @@ screen.blit(background, (0,0))
 help_middle = pygame.Surface((resolution[0],55), pygame.SRCALPHA)
 help_middle.fill((255,255,255,128))
 
-emulator_list = []
-emulator_list.append (Emulator('Amiga','amiga.png','/opt/bin/amiga-emulator'))
-emulator_list.append (Emulator('GameBoy','gb.png','/opt/bin/gameboy-emulator'))
-emulator_list.append (Emulator('Atari 2600','atari2600.png','/opt/bin/atari2600-emulator'))
-emulator_selection = numpy.arange(0,len(emulator_list))
+#
+# GENERATE EMULATOR LIST (+SORT +ROTATE_DEF)
+#
+def rotate(list, direction):
+    if (direction == 'right'):
+	return list[1:] + list[:1]
+    elif (direction == 'left'):
+	return list[-1:] + list[:-1]
+    else:
+	return list
 
+emulator_romdir = 'roms'
+emulator_list = []
+emulator_list.append (Emulator('dragon32','Dragon 32/64','/usr/bin/xroar -fs -extbas BIOS/d32.rom roms/dragon32/Empire.cas',['cas','wav','bas','asc']))
+emulator_list.append (Emulator('amiga','Amiga','/opt/bin/amiga-emulator',[]))
+emulator_list.append (Emulator('gb','GameBoy','/opt/bin/gameboy-emulator',[]))
+emulator_list.append (Emulator('atari2600','Atari 2600','/usr/bin/stella roms/atari2600/SpaceInvaders.a26',[]))
+emulator_list.append (Emulator('3do','3do','/opt/bin/3do-emulator',[]))
+emulator_list.append (Emulator('amstradcpc','Amdtrad CPC','/opt/bin/amstradcpc-emulator',[]))
+
+emulator_selection = []
+for i, val in enumerate(emulator_list):
+    if (val.get_active()): emulator_selection.append([i,val.get_name()])
+emulator_selection = sorted(emulator_selection, key=lambda k: k[1]) 
+emulator_selection = rotate(emulator_selection,'left')
+
+#
+# OTHERS
+#
 clock = pygame.time.Clock()
 BLACK = (0,0,0)
 x = down = roll = 0
 distancia = 2
 aceleracion = 64
 factor = 1.8
+
+if len(joysticks)>0: device = evdev.InputDevice('/dev/input/event4')
 
 while 1:
     # USER INPUT
@@ -177,22 +218,33 @@ while 1:
         if (event.key==K_RIGHT and event.type==KEYDOWN): roll = 2
         elif (event.key==K_LEFT and event.type==KEYDOWN): roll = 1
         elif (event.key==K_ESCAPE and event.type==KEYDOWN): sys.exit(0)
+        elif (event.key==K_RETURN and event.type==KEYDOWN):
+	    p = subprocess.Popen("exec " + emulator_list[0].get_command(),stdout=subprocess.PIPE,shell=True)
+        elif (event.key==K_TAB and event.type==KEYDOWN):
+	    p = subprocess.Popen("exec " + emulator_list[3].get_command(),stdout=subprocess.PIPE,shell=True)
+        elif (event.key==K_TAB and event.type==KEYDOWN):
+	    p.terminate()
 
+    if 'device' in locals():
+	if (device.active_keys() == [314,315]):
+	    p.terminate()
+	print device.active_keys()
+    
     if hasattr(event, 'key'):
 	pygame.draw.rect(screen,(255,255,255),(0,(resolution[3])-130,resolution[0],260))
 	screen.blit(background, (0,0)) # remove when label test ends
 
-    if (roll == 1): # RIGHT
-	emulator_selection = numpy.roll(emulator_selection,1)
+    if (roll == 1): # LEFT
+	emulator_selection = rotate(emulator_selection,'left')
 	roll = 0
-    elif (roll == 2): # LEFT
-	emulator_selection = numpy.roll(emulator_selection,-1)
+    elif (roll == 2): # RIGHT
+	emulator_selection = rotate(emulator_selection,'right')
 	ntmp = roll
 	roll = 0
 
     screen.blit(help_middle, (0,(resolution[3])+135))
 
-    label4 = myfont.render(str(emulator_selection[1])+" GAMES AVAILABLE", 1, (63,63,63))
+    label4 = myfont.render("0 GAMES AVAILABLE", 1, (63,63,63))
     label4pos = label4.get_rect()
     label4pos.centerx = background.get_rect().centerx
     label4pos.centery = (resolution[3])+163
@@ -203,14 +255,14 @@ while 1:
 #    screen.blit(help_down, (0,resolution[1]-100))
 
     # LEFT
-    emulator_list[emulator_selection[0]].set_position((x,(resolution[3])-(emulator_list[emulator_selection[0]].get_height(1)/2)))
-    emulator_list[emulator_selection[0]].draw(screen,1)
+    emulator_list[emulator_selection[0][0]].set_position((x,(resolution[3])-(emulator_list[emulator_selection[0][0]].get_height(1)/2)))
+    emulator_list[emulator_selection[0][0]].draw(screen,1)
     # CENTER (SELECTED)
-    emulator_list[emulator_selection[1]].set_position((x+(resolution[2])-(emulator_list[emulator_selection[1]].get_width(0)/2),(resolution[3])-(emulator_list[emulator_selection[1]].get_height()/2)))
-    emulator_list[emulator_selection[1]].draw(screen,0)
+    emulator_list[emulator_selection[1][0]].set_position((x+(resolution[2])-(emulator_list[emulator_selection[1][0]].get_width(0)/2),(resolution[3])-(emulator_list[emulator_selection[1][0]].get_height()/2)))
+    emulator_list[emulator_selection[1][0]].draw(screen,0)
     # RIGHT
-    emulator_list[emulator_selection[2]].set_position((x+resolution[0]-emulator_list[emulator_selection[2]].get_width(1),(resolution[3])-(emulator_list[emulator_selection[2]].get_height(1)/2)))
-    emulator_list[emulator_selection[2]].draw(screen,1)
+    emulator_list[emulator_selection[2][0]].set_position((x+resolution[0]-emulator_list[emulator_selection[2][0]].get_width(1),(resolution[3])-(emulator_list[emulator_selection[2][0]].get_height(1)/2)))
+    emulator_list[emulator_selection[2][0]].draw(screen,1)
 
 # TEST
     label1 = myfont.render("X: "+str(emulator_list[0].get_position()), 1, (255,63,63))
