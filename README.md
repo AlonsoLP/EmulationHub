@@ -1,6 +1,6 @@
 # EmulationHub
 
-A Linux graphical front-end for emulators developed using Python 2.7 and PyGame.
+A Linux graphical front-end for emulators developed using Python and PyGame.
 
 Python: https://www.python.org
 
